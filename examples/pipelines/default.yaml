@@ -1,0 +1,9 @@
+name: Default Pipeline
+work_dir:
+
+steps:
+  - name: test
+    run: go test ./...
+
+  - name: build
+    run: go build -o main ./

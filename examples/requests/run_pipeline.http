@@ -1,0 +1,4 @@
+###
+POST http://localhost:8080/api/v1/pipeline/1/run
+Content-Type: application/json
+###

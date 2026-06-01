@@ -1,0 +1,61 @@
+//go:build wireinject
+// +build wireinject
+
+package internal
+
+import (
+	"github.com/ORaneezy/go-runner/internal/api"
+	"github.com/ORaneezy/go-runner/internal/api/transport/http/handler"
+	"github.com/ORaneezy/go-runner/internal/infra/database"
+	"github.com/ORaneezy/go-runner/internal/infra/job"
+	"github.com/ORaneezy/go-runner/internal/repository/memory"
+	"github.com/ORaneezy/go-runner/internal/usecase/pipeline"
+	"github.com/ORaneezy/go-runner/internal/usecase/run"
+	"github.com/google/wire"
+)
+
+var PipelineRepositorySet = wire.NewSet(
+	memory.NewPipelineRepository,
+	wire.Bind(new(pipeline.PipelineCreator), new(*memory.PipelineRepository)),
+	wire.Bind(new(pipeline.PipelineGetter), new(*memory.PipelineRepository)),
+	wire.Bind(new(pipeline.RunCreator), new(*memory.PipelineRepository)),
+)
+
+var RunRepositorySet = wire.NewSet(
+	memory.NewRunRepository,
+	wire.Bind(new(run.RunGetter), new(*memory.RunRepository)),
+	wire.Bind(new(run.LogsGetter), new(*memory.RunRepository)),
+	wire.Bind(new(job.LogsInserter), new(*memory.RunRepository)),
+)
+
+var PipelineUsecaseSet = wire.NewSet(
+	pipeline.NewCreateUsecase,
+	pipeline.NewGetUsecase,
+	pipeline.NewRunUsecase,
+)
+
+var RunUsecaseSet = wire.NewSet(
+	run.NewGetUsecase,
+	run.NewGetLogsUsecase,
+)
+
+var PipelineRunJobSet = wire.NewSet(
+	job.NewPipelineRunJob,
+	wire.Bind(new(pipeline.JobEnqueuer), new(*job.PipelineRunJob)),
+)
+
+func InitAPI() *api.API {
+	wire.Build(
+		database.NewMemoryDB,
+		PipelineRepositorySet,
+		RunRepositorySet,
+		PipelineRunJobSet,
+		PipelineUsecaseSet,
+		handler.NewPipelineHandler,
+		RunUsecaseSet,
+		handler.NewRunHandler,
+		api.New,
+	)
+
+	return nil
+}
