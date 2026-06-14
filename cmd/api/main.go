@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"log"
 	"net/http"
 	"os/signal"
@@ -13,7 +14,13 @@ import (
 )
 
 func main() {
-	api := internal.InitAPI()
+	isDebug := flag.Bool("debug", false, "start in debug mode")
+	flag.Parse()
+
+	api, err := internal.InitAPI(*isDebug)
+	if err != nil {
+		log.Fatalf("failed to initialize api: %v", err)
+	}
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 

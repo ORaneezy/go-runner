@@ -1,39 +1,44 @@
 package job
 
 import (
-	"bytes"
+	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os/exec"
+	"sync"
 	"time"
 
 	"github.com/ORaneezy/go-runner/internal/domain/entity"
-	"github.com/ORaneezy/go-runner/internal/usecase/pipeline"
 )
 
-type LogsInserter interface {
-	InsertBulk(ctx context.Context, runID int, messages []string) error
+type LogsManager interface {
+	Insert(ctx context.Context, runID int, stepID int, message string) error
+}
+
+type RunManager interface {
+	SetRunStatus(ctx context.Context, runID int, status entity.RunStatus) error
 }
 
 type PipelineRunJob struct {
-	jobs           chan entity.Job
-	ctx            context.Context
-	cancel         context.CancelFunc
-	pipelineGetter pipeline.PipelineGetter
-	logsInserter   LogsInserter
+	jobs        chan entity.Job
+	ctx         context.Context
+	cancel      context.CancelFunc
+	logsManager LogsManager
+	runManager  RunManager
 }
 
 func NewPipelineRunJob(
-	pipelineGetter pipeline.PipelineGetter,
-	logsInserter LogsInserter,
+	logsManager LogsManager,
+	runManager RunManager,
 ) *PipelineRunJob {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &PipelineRunJob{
-		jobs:           make(chan entity.Job, 5),
-		ctx:            ctx,
-		pipelineGetter: pipelineGetter,
-		logsInserter:   logsInserter,
-		cancel:         cancel,
+		jobs:        make(chan entity.Job, 5),
+		ctx:         ctx,
+		logsManager: logsManager,
+		runManager:  runManager,
+		cancel:      cancel,
 	}
 }
 
@@ -68,33 +73,83 @@ func (j *PipelineRunJob) Stop() {
 }
 
 func (j *PipelineRunJob) processJob(ctx context.Context, job entity.Job) {
-	p, err := j.pipelineGetter.GetPipelineByID(ctx, job.PipelineID)
-	if err != nil {
-		return
-	}
+	_ = j.runManager.SetRunStatus(ctx, job.RunID, entity.RunStatusRunning)
+	ss := make([]bool, len(job.Pipeline.Steps), len(job.Pipeline.Steps))
 
-	for _, s := range p.Steps {
-		var logs []string
-		logs = append(logs, fmt.Sprintf("running step: %v", s.Name))
-		cmd := exec.CommandContext(ctx, "sh", "-c", s.Run)
-		cmd.Dir = p.WorkDirectory
-
-		var stdout, stderr bytes.Buffer
-		cmd.Stdout = &stdout
-		cmd.Stderr = &stderr
-
-		if err = cmd.Run(); err != nil {
-			logs = append(
-				logs, fmt.Sprintf(
-					"error: %v, output: %v",
-					err,
-					stderr.String(),
-				),
-			)
-
+	for i, s := range job.Pipeline.Steps {
+		if i != 0 && !ss[i-1] {
+			continue
 		}
 
-		logs = append(logs, stdout.String())
-		_ = j.logsInserter.InsertBulk(ctx, job.RunID, logs)
+		cmd := exec.CommandContext(ctx, "sh", "-c", s.Command)
+		cmd.Dir = job.Pipeline.WorkDirectory
+
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			_ = j.logsManager.Insert(
+				ctx, job.RunID, s.ID,
+				fmt.Sprintf("failed to pipe stdout: %v", err),
+			)
+			continue
+		}
+
+		stderr, err := cmd.StderrPipe()
+		if err != nil {
+			_ = j.logsManager.Insert(
+				ctx, job.RunID, s.ID, fmt.Sprintf(
+					"failed to pipe stderr: %v",
+					err,
+				),
+			)
+			continue
+		}
+
+		if err = cmd.Start(); err != nil {
+			_ = j.logsManager.Insert(
+				ctx, job.RunID, s.ID, fmt.Sprintf(
+					"failed to start command: %v",
+					err,
+				),
+			)
+			continue
+		}
+
+		wg := sync.WaitGroup{}
+		for _, rc := range []io.ReadCloser{stdout, stderr} {
+			wg.Add(1)
+			go func(rc io.ReadCloser) {
+				defer wg.Done()
+				defer rc.Close()
+				scanner := bufio.NewScanner(rc)
+				for scanner.Scan() {
+					line := scanner.Text()
+					_ = j.logsManager.Insert(ctx, job.RunID, s.ID, line)
+				}
+			}(rc)
+		}
+
+		if err = cmd.Wait(); err != nil {
+			_ = j.logsManager.Insert(
+				ctx, job.RunID, s.ID,
+				fmt.Sprintf("failed to wait command: %v", err),
+			)
+
+			continue
+		}
+
+		wg.Wait()
+
+		ss[i] = true
+	}
+
+	for i, success := range ss {
+		if !success {
+			_ = j.runManager.SetRunStatus(ctx, job.RunID, entity.RunStatusFailure)
+			return
+		}
+
+		if i == len(ss)-1 {
+			_ = j.runManager.SetRunStatus(ctx, job.RunID, entity.RunStatusSuccess)
+		}
 	}
 }

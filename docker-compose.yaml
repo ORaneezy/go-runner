@@ -1,0 +1,27 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: go-runner-pg
+    environment:
+      POSTGRES_USER: ${DATABASE_USER}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
+      POSTGRES_DB: ${DATABASE_NAME}
+    ports:
+      - "5432:5432"
+    volumes:
+      - go-runner-db:/var/lib/postgresql/data
+    restart: unless-stopped
+  migrate:
+    image: migrate/migrate:v4.17.0
+    volumes:
+      - ./migrations:/migrations
+    command: [
+      "-path",
+      "/migrations",
+      "-database",
+      "postgres://${DATABASE_USER}:${DATABASE_PASSWORD}@${DATABASE_HOST}/${DATABASE_NAME}?sslmode=disable",
+      "up"
+    ]
+
+volumes:
+  go-runner-db:

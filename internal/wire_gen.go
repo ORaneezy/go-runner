@@ -9,9 +9,11 @@ package internal
 import (
 	"github.com/ORaneezy/go-runner/internal/api"
 	"github.com/ORaneezy/go-runner/internal/api/transport/http/handler"
+	"github.com/ORaneezy/go-runner/internal/config"
 	"github.com/ORaneezy/go-runner/internal/infra/database"
 	"github.com/ORaneezy/go-runner/internal/infra/job"
-	"github.com/ORaneezy/go-runner/internal/repository/memory"
+	"github.com/ORaneezy/go-runner/internal/repository/postgres"
+	"github.com/ORaneezy/go-runner/internal/usecase"
 	"github.com/ORaneezy/go-runner/internal/usecase/pipeline"
 	"github.com/ORaneezy/go-runner/internal/usecase/run"
 	"github.com/google/wire"
@@ -19,30 +21,37 @@ import (
 
 // Injectors from wire.go:
 
-func InitAPI() *api.API {
-	memoryDB := database.NewMemoryDB()
-	pipelineRepository := memory.NewPipelineRepository(memoryDB)
-	runRepository := memory.NewRunRepository(memoryDB)
-	pipelineRunJob := job.NewPipelineRunJob(pipelineRepository, runRepository)
+func InitAPI(isDebug bool) (*api.API, error) {
+	configConfig, err := config.NewConfig(isDebug)
+	if err != nil {
+		return nil, err
+	}
+	pool, err := database.NewPostgres(configConfig)
+	if err != nil {
+		return nil, err
+	}
+	runRepository := postgres.NewRunRepository(pool)
+	pipelineRunJob := job.NewPipelineRunJob(runRepository, runRepository)
+	pipelineRepository := postgres.NewPipelineRepository(pool)
 	createUsecase := pipeline.NewCreateUsecase(pipelineRepository)
 	getUsecase := pipeline.NewGetUsecase(pipelineRepository)
-	runUsecase := pipeline.NewRunUsecase(pipelineRepository, pipelineRepository, pipelineRunJob)
-	handlerPipeline := handler.NewPipelineHandler(createUsecase, getUsecase, runUsecase)
+	runCreateUsecase := run.NewRunUsecase(pipelineRepository, pipelineRepository, pipelineRunJob)
+	handlerPipeline := handler.NewPipelineHandler(createUsecase, getUsecase, runCreateUsecase)
 	runGetUsecase := run.NewGetUsecase(runRepository)
 	getLogsUsecase := run.NewGetLogsUsecase(runRepository)
 	handlerRun := handler.NewRunHandler(runGetUsecase, getLogsUsecase)
 	apiAPI := api.New(pipelineRunJob, handlerPipeline, handlerRun)
-	return apiAPI
+	return apiAPI, nil
 }
 
 // wire.go:
 
-var PipelineRepositorySet = wire.NewSet(memory.NewPipelineRepository, wire.Bind(new(pipeline.PipelineCreator), new(*memory.PipelineRepository)), wire.Bind(new(pipeline.PipelineGetter), new(*memory.PipelineRepository)), wire.Bind(new(pipeline.RunCreator), new(*memory.PipelineRepository)))
+var PipelineRepositorySet = wire.NewSet(postgres.NewPipelineRepository, wire.Bind(new(pipeline.PipelineCreator), new(*postgres.PipelineRepository)), wire.Bind(new(usecase.PipelineGetter), new(*postgres.PipelineRepository)), wire.Bind(new(usecase.RunCreator), new(*postgres.PipelineRepository)))
 
-var RunRepositorySet = wire.NewSet(memory.NewRunRepository, wire.Bind(new(run.RunGetter), new(*memory.RunRepository)), wire.Bind(new(run.LogsGetter), new(*memory.RunRepository)), wire.Bind(new(job.LogsInserter), new(*memory.RunRepository)))
+var RunRepositorySet = wire.NewSet(postgres.NewRunRepository, wire.Bind(new(run.RunGetter), new(*postgres.RunRepository)), wire.Bind(new(run.LogsGetter), new(*postgres.RunRepository)), wire.Bind(new(job.LogsManager), new(*postgres.RunRepository)), wire.Bind(new(job.RunManager), new(*postgres.RunRepository)))
 
-var PipelineUsecaseSet = wire.NewSet(pipeline.NewCreateUsecase, pipeline.NewGetUsecase, pipeline.NewRunUsecase)
+var PipelineUsecaseSet = wire.NewSet(pipeline.NewCreateUsecase, pipeline.NewGetUsecase, run.NewRunUsecase)
 
 var RunUsecaseSet = wire.NewSet(run.NewGetUsecase, run.NewGetLogsUsecase)
 
-var PipelineRunJobSet = wire.NewSet(job.NewPipelineRunJob, wire.Bind(new(pipeline.JobEnqueuer), new(*job.PipelineRunJob)))
+var PipelineRunJobSet = wire.NewSet(job.NewPipelineRunJob, wire.Bind(new(usecase.JobEnqueuer), new(*job.PipelineRunJob)))

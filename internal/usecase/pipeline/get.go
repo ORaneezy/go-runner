@@ -5,14 +5,15 @@ import (
 
 	"github.com/ORaneezy/go-runner/internal/api/dto/response"
 	"github.com/ORaneezy/go-runner/internal/domain/entity"
+	"github.com/ORaneezy/go-runner/internal/usecase"
 	"github.com/ORaneezy/go-runner/pkg/mapper"
 )
 
 type GetUsecase struct {
-	getter PipelineGetter
+	getter usecase.PipelineGetter
 }
 
-func NewGetUsecase(getter PipelineGetter) *GetUsecase {
+func NewGetUsecase(getter usecase.PipelineGetter) *GetUsecase {
 	return &GetUsecase{
 		getter: getter,
 	}
@@ -32,7 +33,7 @@ func (u *GetUsecase) Execute(ctx context.Context, id int) (*response.Pipeline, e
 			p.Steps, func(o entity.Step) response.Step {
 				return response.Step{
 					Name: o.Name,
-					Run:  o.Run,
+					Run:  o.Command,
 				}
 			},
 		),

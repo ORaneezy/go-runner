@@ -1,6 +1,6 @@
 package entity
 
 type Job struct {
-	PipelineID int
-	RunID      int
+	Pipeline Pipeline
+	RunID    int
 }

@@ -30,7 +30,7 @@ func (u *GetUsecase) Execute(ctx context.Context, runID int) (*response.Run, err
 	resp := &response.Run{
 		ID:         r.ID,
 		PipelineID: r.PipelineID,
-		Status:     r.Status,
+		Status:     string(r.Status),
 	}
 
 	return resp, nil

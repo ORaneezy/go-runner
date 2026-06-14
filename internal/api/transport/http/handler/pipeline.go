@@ -5,19 +5,20 @@ import (
 	"net/http"
 
 	"github.com/ORaneezy/go-runner/internal/usecase/pipeline"
+	"github.com/ORaneezy/go-runner/internal/usecase/run"
 	"github.com/labstack/echo/v5"
 )
 
 type Pipeline struct {
 	createUsecase *pipeline.CreateUsecase
 	getUsecase    *pipeline.GetUsecase
-	runUsecase    *pipeline.RunUsecase
+	runUsecase    *run.CreateUsecase
 }
 
 func NewPipelineHandler(
 	createUsecase *pipeline.CreateUsecase,
 	getUsecase *pipeline.GetUsecase,
-	runUsecase *pipeline.RunUsecase,
+	runUsecase *run.CreateUsecase,
 ) *Pipeline {
 	return &Pipeline{
 		createUsecase: createUsecase,

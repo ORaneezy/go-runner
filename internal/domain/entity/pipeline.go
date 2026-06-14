@@ -8,6 +8,8 @@ type Pipeline struct {
 }
 
 type Step struct {
-	Name string `yaml:"name"`
-	Run  string `yaml:"run"`
+	ID            int
+	Name          string `yaml:"name"`
+	SequenceOrder int
+	Command       string `yaml:"command"`
 }
